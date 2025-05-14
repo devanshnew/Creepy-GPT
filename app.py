@@ -12,14 +12,12 @@ st.write("Branching horror story generator")
 @st.cache_resource
 def load_generator():
     return pipeline("text-generation", model="distilgpt2")
-
 gen = load_generator()
 
 # --- Load seeds.json ---
 @st.cache_data
 def load_seeds(path="seeds.json"):
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    data = json.load(open(path, "r", encoding="utf-8"))
     df = pd.DataFrame(data)
     if "intensity" not in df.columns:
         df["intensity"] = 3
@@ -27,68 +25,41 @@ def load_seeds(path="seeds.json"):
 
 df = load_seeds()
 
-# 0) Initialize history
+# --- Initialize story history ---
 if "history" not in st.session_state:
     st.session_state.history = []
 
-# Display the story so far
-for i, text in enumerate(st.session_state.history):
-    st.markdown(f"**Part {i+1}:** {text}")
+# --- Display story so far ---
+for i, part in enumerate(st.session_state.history):
+    st.markdown(f"**Part {i+1}:** {part}")
 
-# --- UI: slider & dropdown ---
+# --- UI: slider, dropdown ---
 lvl = st.slider("Max horror level (1=mild … 5=extreme)", 1, 5, 3)
 st.markdown(f"Showing random seeds up to **level {lvl}**")
 
-choices = df[df["intensity"] <= lvl][["text","intensity"]].to_dict(orient="records")
-random.shuffle(choices)
-choices = choices[:10]
+cands = df[df["intensity"] <= lvl][["text","intensity"]].to_dict(orient="records")
+random.shuffle(cands)
+cands = cands[:10]
 
-options = [(f"{c['text']}  — level {c['intensity']}", c["text"]) for c in choices]
+options = [(f"{c['text']}  — level {c['intensity']}", c["text"]) for c in cands]
 labels, values = zip(*options)
-sel = st.selectbox("Pick your scary seed", list(range(len(labels))),
+idx = st.selectbox("Pick your scary seed", range(len(labels)),
                    format_func=lambda i: labels[i])
-seed = values[sel]
+seed = values[idx]
 
+# --- Single “Spook me” handler ---
 if st.button("Spook me"):
-    # Build a proper continuation prompt
+    # Build a prompt that includes all previous parts + the new seed
     context = "\n\n".join(st.session_state.history)
-    prompt = f"{context}\n\nContinue the horror story. Next: {seed}"
-    
+    prompt = (f"{context}\n\nContinue the horror story. Next: {seed}"
+              if context else seed)
     with st.spinner("Building the nightmare…"):
         out = gen(prompt, max_length=150, do_sample=True, top_p=0.9)[0]["generated_text"]
-
-    # Append and render
+    # Save & display
     st.session_state.history.append(out)
     st.write(out)
 
-# --- Handle button press & store in session ---
-if "story" not in st.session_state:
-    st.session_state.story = []  # holds generated snippets
-
-if st.button("Spook me"):
-    st.session_state.last_action = "button_pressed"
-    try:
-        with st.spinner("Summoning terror…"):
-            out = gen(seed, max_length=150, do_sample=True, top_p=0.9)[0]["generated_text"]
-        # save
-        st.session_state.story.append(out)
-        st.session_state.last_error = None
-    except Exception as e:
-        st.session_state.last_error = str(e)
-
-# --- Debug & display ---
-if st.session_state.get("last_action") == "button_pressed":
-    st.markdown("**[Debug]** Button registered")
-if st.session_state.get("last_error"):
-    st.error(f"Generation error: {st.session_state.last_error}")
-
-# --- Show the story so far ---
-for i, snippet in enumerate(st.session_state.story):
-    st.markdown(f"**Part {i+1}:** {snippet}")
-
-# --- Compute & show scare score for the last snippet ---
-if st.session_state.story:
-    last = st.session_state.story[-1]
+    # Scare‐score on the most recent part
     horror_lex = ["blood","death","ghost","corpse","dark","scream","shadow","fear"]
-    score = min(100, sum(last.lower().count(w) for w in horror_lex)*10)
+    score = min(100, sum(out.lower().count(w) for w in horror_lex) * 10)
     st.markdown(f"**Scare score:** {score}/100")
