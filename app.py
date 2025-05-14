@@ -1,53 +1,61 @@
 import streamlit as st
 from transformers import pipeline
-from datasets import load_dataset
 import pandas as pd
 import random
+import json
 
-# --- Title ---
-st.title("Creepy GPT")
+# --- Page setup ---
+st.set_page_config(page_title="Creepy GPT", layout="centered")
+st.title("👻 Creepy GPT")
 st.write("Branching horror story generator")
 
 # --- Load the model once ---
-gen = pipeline("text-generation", model="distilgpt2")
+@st.cache_resource
+def load_generator():
+    return pipeline("text-generation", model="distilgpt2")
 
-# --- 1) Fetch the Two-Sentence Horror dataset ---
-ds = load_dataset("voacado/bart-two-sentence-horror", split="train")
+gen = load_generator()
 
-# --- 2) Convert to DataFrame ---
-df = pd.DataFrame(ds)
-# The dataset has 'text' and 'upvotes' columns; rename upvotes → score
-df = df.rename(columns={"upvotes": "score"})
+# --- Load all seeds from your local JSON file ---
+@st.cache_data
+def load_seeds(path="seeds.json"):
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return pd.DataFrame(data)
 
-# --- 3) Quantile-bin the 'score' into 1–5 intensity levels ---
-df["intensity"] = pd.qcut(df["score"].fillna(0), 5, labels=False) + 1
+df = load_seeds()  # expects [{'text':..., 'intensity':1–5}, ...]
 
-# --- 4) Slider for max horror level ---
-intensity = st.slider("Max horror level (1=mild … 5=extreme)", 1, 5, 3)
-st.write(f"Showing random seeds up to level **{intensity}**")
+# --- Horror‐level slider ---
+intensity = st.slider(
+    "Max horror level", 
+    min_value=1, max_value=5, value=3,
+    help="1=mild … 5=extreme"
+)
+st.markdown(f"Showing random seeds up to **level {intensity}**")
 
-# --- 5) Filter & randomize a small subset for this session ---
-filtered = df[df["intensity"] <= intensity][["text","intensity"]].to_dict(orient="records")
+# --- Filter & random subset of 10 seeds ---
+filtered = df[df["intensity"] <= intensity][["text", "intensity"]].to_dict(orient="records")
 random.shuffle(filtered)
 choices = filtered[:10]
 
-# --- 6) Build annotated dropdown options ---
+# --- Dropdown with annotated levels ---
 options = [
-    (f"{item['text']}  —  level {item['intensity']}", item["text"])
+    (f"{item['text']}  — level {item['intensity']}", item["text"])
     for item in choices
 ]
 display, raw = zip(*options)
-
-idx = st.selectbox("Pick your scary seed", list(range(len(display))),
+idx = st.selectbox("Pick your scary seed", options=list(range(len(display))),
                    format_func=lambda i: display[i])
 seed = raw[idx]
 
-# --- 7) Generate and display snippet + score ---
+# --- Generate & display snippet + scare‐score ---
 if st.button("Spook me"):
-    out = gen(seed, max_length=150, do_sample=True, top_p=0.9)[0]["generated_text"]
-    st.write(out)
+    with st.spinner("Summoning the horror..."):
+        result = gen(seed, max_length=150, do_sample=True, top_p=0.9)[0]["generated_text"]
+    st.write(result)
 
-    # Quick lexicon-based “scare score” (optional)
+    # simple lexicon‐based scare score
     horror_lexicon = ["blood","death","ghost","corpse","dark","scream","shadow","fear"]
-    score = sum(out.lower().count(w) for w in horror_lexicon)
-    st.markdown(f"**Scare score:** {min(100, score*10)}/100")
+    score = sum(result.lower().count(w) for w in horror_lexicon)
+    score = min(100, score * 10)
+    st.markdown(f"**Scare score:** {score}/100")
