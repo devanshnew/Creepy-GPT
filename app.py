@@ -27,6 +27,14 @@ def load_seeds(path="seeds.json"):
 
 df = load_seeds()
 
+# 0) Initialize history
+if "history" not in st.session_state:
+    st.session_state.history = []
+
+# Display the story so far
+for i, text in enumerate(st.session_state.history):
+    st.markdown(f"**Part {i+1}:** {text}")
+
 # --- UI: slider & dropdown ---
 lvl = st.slider("Max horror level (1=mild … 5=extreme)", 1, 5, 3)
 st.markdown(f"Showing random seeds up to **level {lvl}**")
@@ -40,6 +48,18 @@ labels, values = zip(*options)
 sel = st.selectbox("Pick your scary seed", list(range(len(labels))),
                    format_func=lambda i: labels[i])
 seed = values[sel]
+
+if st.button("Spook me"):
+    # Build a proper continuation prompt
+    context = "\n\n".join(st.session_state.history)
+    prompt = f"{context}\n\nContinue the horror story. Next: {seed}"
+    
+    with st.spinner("Building the nightmare…"):
+        out = gen(prompt, max_length=150, do_sample=True, top_p=0.9)[0]["generated_text"]
+
+    # Append and render
+    st.session_state.history.append(out)
+    st.write(out)
 
 # --- Handle button press & store in session ---
 if "story" not in st.session_state:
